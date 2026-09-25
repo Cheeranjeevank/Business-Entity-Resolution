@@ -1,0 +1,6 @@
+student_resource/dataset/
+*.tsv
+*.csv
+__pycache__/
+*.json
+.DS_Store
