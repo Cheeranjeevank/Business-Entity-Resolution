@@ -10,6 +10,7 @@ from candidate_generation import tfidf_blocking
 from feature_engineering import process_candidate_pairs
 from semantic_embeddings import add_semantic_features
 from train_model import train_model, evaluate_model, save_model
+from error_analysis import analyze_errors
 
 def load_data(n_rows=None):
     print(f"Loading full datasets into memory (this will take a few seconds)...")
@@ -150,6 +151,9 @@ def main():
         print("\nFeature Importances:")
         importances = pd.DataFrame({'Feature': features, 'Importance': model.feature_importances_})
         print(importances.sort_values(by='Importance', ascending=False).to_string(index=False))
+
+    # 10. Error Analysis (Phase 15)
+    analyze_errors("output/entity_resolution_model.pkl", X_val, y_val, threshold)
 
 if __name__ == "__main__":
     main()

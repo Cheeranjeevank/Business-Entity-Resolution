@@ -4,17 +4,8 @@ from sklearn.metrics import precision_score, recall_score, fbeta_score, classifi
 import pickle
 import os
 
-try:
-    from xgboost import XGBClassifier # type: ignore
-    MODEL_TYPE = 'xgb'
-except ImportError:
-    try:
-        from lightgbm import LGBMClassifier # type: ignore
-        MODEL_TYPE = 'lgb'
-    except ImportError:
-        from sklearn.ensemble import RandomForestClassifier
-        MODEL_TYPE = 'rf'
-        print("Warning: xgboost and lightgbm not installed. Falling back to RandomForest.")
+from sklearn.ensemble import HistGradientBoostingClassifier
+MODEL_TYPE = 'hgb'
 
 def train_model(X_train, y_train):
     print(f"Training Model ({MODEL_TYPE})...")
@@ -29,15 +20,12 @@ def train_model(X_train, y_train):
             random_state=42,
             n_jobs=-1
         )
-    elif MODEL_TYPE == 'lgb':
-        model = LGBMClassifier(
-            n_estimators=300,
+    elif MODEL_TYPE == 'hgb':
+        model = HistGradientBoostingClassifier(
+            max_iter=300,
             learning_rate=0.05,
             max_depth=6,
-            subsample=0.8,
-            colsample_bytree=0.8,
-            random_state=42,
-            n_jobs=-1
+            random_state=42
         )
     else:
         model = RandomForestClassifier(n_estimators=150, max_depth=15, random_state=42, n_jobs=-1)

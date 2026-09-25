@@ -67,6 +67,18 @@ def build_features(query_row, candidate_row):
     # Country Match
     features['country_match'] = 1 if (query_row.get('country', '') == candidate_row.get('country', '')) else 0
     
+    # Missing Value Flags (Phase 7 Boost)
+    q_name_miss = 1 if not query_row.get('business_name', '') or pd.isna(query_row.get('business_name')) else 0
+    c_name_miss = 1 if not candidate_row.get('business_name', '') or pd.isna(candidate_row.get('business_name')) else 0
+    features['name_missing_query'] = q_name_miss
+    features['name_missing_cand'] = c_name_miss
+    
+    q_addr_miss = 1 if not query_row.get('business_address', '') or pd.isna(query_row.get('business_address')) else 0
+    c_addr_miss = 1 if not candidate_row.get('business_address', '') or pd.isna(candidate_row.get('business_address')) else 0
+    features['addr_missing_query'] = q_addr_miss
+    features['addr_missing_cand'] = c_addr_miss
+    features['both_addr_missing'] = 1 if q_addr_miss and c_addr_miss else 0
+    
     return features
 
 def process_candidate_pairs(s1_df, corpus_df, candidate_pairs_df):
@@ -74,36 +86,39 @@ def process_candidate_pairs(s1_df, corpus_df, candidate_pairs_df):
     Iterates over the generated candidate pairs and builds the feature matrix X.
     candidate_pairs_df should have 'source1_entity_id', 'candidate_entity_id', and optionally 'target'
     """
+    from joblib import Parallel, delayed
+    import multiprocessing as mp
+    
     # Index dataframes for O(1) fast lookup
     s1_df = s1_df.set_index('entity_id')
     corpus_df = corpus_df.set_index('entity_id')
     
-    X = []
+    print(f"Extracting features for {len(candidate_pairs_df)} candidate pairs (Nuclear Parallel Processing)...")
     
-    print(f"Extracting features for {len(candidate_pairs_df)} candidate pairs...")
+    def process_chunk(chunk_df):
+        X = []
+        for idx, row in chunk_df.iterrows():
+            s1_id = row['source1_entity_id']
+            cand_id = row['candidate_entity_id']
+            
+            if s1_id not in s1_df.index or cand_id not in corpus_df.index:
+                continue
+                
+            features = build_features(s1_df.loc[s1_id], corpus_df.loc[cand_id])
+            features['source1_entity_id'] = s1_id
+            features['candidate_entity_id'] = cand_id
+            
+            if 'target' in row:
+                features['target'] = row['target']
+                
+            X.append(features)
+        return pd.DataFrame(X)
+
+    n_cores = max(1, mp.cpu_count() - 1)
+    chunks = np.array_split(candidate_pairs_df, n_cores * 4) # Split into more chunks than cores for better distribution
+    results = Parallel(n_jobs=n_cores, require='sharedmem')(delayed(process_chunk)(chunk) for chunk in chunks)
     
-    # In production with 2GB data, use multiprocessing or dask
-    # For now, a standard iteration loop is used.
-    for idx, row in candidate_pairs_df.iterrows():
-        s1_id = row['source1_entity_id']
-        cand_id = row['candidate_entity_id']
-        
-        if s1_id not in s1_df.index or cand_id not in corpus_df.index:
-            continue
-            
-        q_row = s1_df.loc[s1_id]
-        c_row = corpus_df.loc[cand_id]
-        
-        features = build_features(q_row, c_row)
-        features['source1_entity_id'] = s1_id
-        features['candidate_entity_id'] = cand_id
-        
-        if 'target' in row:
-            features['target'] = row['target']
-            
-        X.append(features)
-        
-    return pd.DataFrame(X)
+    return pd.concat(results, ignore_index=True)
 
 if __name__ == "__main__":
     print("Feature Engineering module loaded successfully.")

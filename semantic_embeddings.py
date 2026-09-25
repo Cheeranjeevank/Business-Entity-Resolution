@@ -24,6 +24,7 @@ def add_semantic_features(features_df, s1_df, corpus_df):
     """
     Given a dataframe of extracted features (which includes source1_entity_id and candidate_entity_id),
     computes deep semantic cosine similarity and appends them as new columns.
+    Optimized to only encode unique strings.
     """
     model = get_model()
     if model is None:
@@ -35,48 +36,52 @@ def add_semantic_features(features_df, s1_df, corpus_df):
     if corpus_df.index.name != 'entity_id':
         corpus_df = corpus_df.set_index('entity_id')
         
-    q_names, c_names = [], []
-    q_addrs, c_addrs = [], []
+    print("Extracting unique text strings for 10x faster encoding...")
+    unique_names = list(set(s1_df['norm_name'].dropna().astype(str).tolist() + corpus_df['norm_name'].dropna().astype(str).tolist()))
+    unique_addrs = list(set(s1_df['norm_address'].dropna().astype(str).tolist() + corpus_df['norm_address'].dropna().astype(str).tolist()))
     
-    print(f"Extracting strings for semantic encoding of {len(features_df)} pairs...")
+    print(f"Encoding {len(unique_names)} unique names...")
+    # normalize_embeddings=True converts the vectors to L2 length = 1, meaning dot product is exactly cosine similarity
+    names_emb = model.encode(unique_names, batch_size=256, show_progress_bar=True, normalize_embeddings=True)
+    name_emb_dict = {name: emb for name, emb in zip(unique_names, names_emb)}
+    name_emb_dict[""] = np.zeros(names_emb.shape[1])
     
-    # Pre-build dictionaries for lightning fast O(1) lookups and to avoid .loc[] Series bugs
-    s1_names = s1_df['norm_name'].to_dict()
-    s1_addrs = s1_df['norm_address'].to_dict()
-    corpus_names = corpus_df['norm_name'].to_dict()
-    corpus_addrs = corpus_df['norm_address'].to_dict()
+    print(f"Encoding {len(unique_addrs)} unique addresses...")
+    addrs_emb = model.encode(unique_addrs, batch_size=256, show_progress_bar=True, normalize_embeddings=True)
+    addr_emb_dict = {addr: emb for addr, emb in zip(unique_addrs, addrs_emb)}
+    addr_emb_dict[""] = np.zeros(addrs_emb.shape[1])
     
-    for idx, row in features_df.iterrows():
-        s1_id = row['source1_entity_id']
-        cand_id = row['candidate_entity_id']
+    print(f"Mapping embeddings to {len(features_df)} pairs and computing fast dot-products...")
+    
+    s1_names = s1_df['norm_name'].fillna("").astype(str).to_dict()
+    s1_addrs = s1_df['norm_address'].fillna("").astype(str).to_dict()
+    corpus_names = corpus_df['norm_name'].fillna("").astype(str).to_dict()
+    corpus_addrs = corpus_df['norm_address'].fillna("").astype(str).to_dict()
+    
+    name_sims = np.zeros(len(features_df))
+    addr_sims = np.zeros(len(features_df))
+    
+    for i, row in enumerate(features_df.itertuples()):
+        s1_id = row.source1_entity_id
+        cand_id = row.candidate_entity_id
         
         q_n = s1_names.get(s1_id, "")
         c_n = corpus_names.get(cand_id, "")
         q_a = s1_addrs.get(s1_id, "")
         c_a = corpus_addrs.get(cand_id, "")
         
-        q_names.append(str(q_n) if pd.notna(q_n) else "")
-        c_names.append(str(c_n) if pd.notna(c_n) else "")
-        
-        q_addrs.append(str(q_a) if pd.notna(q_a) else "")
-        c_addrs.append(str(c_a) if pd.notna(c_a) else "")
-        
-    print("Encoding Source 1 Names...")
-    # normalize_embeddings=True converts the vectors to L2 length = 1, meaning dot product is exactly cosine similarity
-    q_names_emb = model.encode(q_names, batch_size=256, show_progress_bar=True, normalize_embeddings=True)
-    
-    print("Encoding Candidate Names...")
-    c_names_emb = model.encode(c_names, batch_size=256, show_progress_bar=True, normalize_embeddings=True)
-    
-    print("Encoding Source 1 Addresses...")
-    q_addrs_emb = model.encode(q_addrs, batch_size=256, show_progress_bar=True, normalize_embeddings=True)
-    
-    print("Encoding Candidate Addresses...")
-    c_addrs_emb = model.encode(c_addrs, batch_size=256, show_progress_bar=True, normalize_embeddings=True)
-    
-    print("Computing Cosine Similarities via Matrix Dot Product...")
-    features_df['name_semantic_sim'] = np.sum(q_names_emb * c_names_emb, axis=1)
-    features_df['addr_semantic_sim'] = np.sum(q_addrs_emb * c_addrs_emb, axis=1)
+        q_n_emb = name_emb_dict.get(q_n)
+        c_n_emb = name_emb_dict.get(c_n)
+        if q_n_emb is not None and c_n_emb is not None:
+            name_sims[i] = np.dot(q_n_emb, c_n_emb)
+            
+        q_a_emb = addr_emb_dict.get(q_a)
+        c_a_emb = addr_emb_dict.get(c_a)
+        if q_a_emb is not None and c_a_emb is not None:
+            addr_sims[i] = np.dot(q_a_emb, c_a_emb)
+            
+    features_df['name_semantic_sim'] = name_sims
+    features_df['addr_semantic_sim'] = addr_sims
     
     return features_df
 
