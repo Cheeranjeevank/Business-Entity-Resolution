@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 
 try:
-    from sentence_transformers import SentenceTransformer
+    from sentence_transformers import SentenceTransformer # type: ignore
 except ImportError:
     print("Warning: sentence_transformers not installed.")
     print("Please run: pip install sentence-transformers")
@@ -11,6 +11,9 @@ _model = None
 
 def get_model():
     global _model
+    if 'SentenceTransformer' not in globals():
+        print("SentenceTransformer not installed. Skipping semantic embeddings.")
+        return None
     if _model is None:
         print("Loading SentenceTransformer model (all-MiniLM-L6-v2)...")
         # all-MiniLM-L6-v2 is small (80MB), extremely fast, and highly effective for semantic matching
@@ -23,6 +26,8 @@ def add_semantic_features(features_df, s1_df, corpus_df):
     computes deep semantic cosine similarity and appends them as new columns.
     """
     model = get_model()
+    if model is None:
+        return features_df
     
     # Fast O(1) lookup
     if s1_df.index.name != 'entity_id':

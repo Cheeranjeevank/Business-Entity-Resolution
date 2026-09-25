@@ -5,11 +5,11 @@ import pickle
 import os
 
 try:
-    from xgboost import XGBClassifier
+    from xgboost import XGBClassifier # type: ignore
     MODEL_TYPE = 'xgb'
 except ImportError:
     try:
-        from lightgbm import LGBMClassifier
+        from lightgbm import LGBMClassifier # type: ignore
         MODEL_TYPE = 'lgb'
     except ImportError:
         from sklearn.ensemble import RandomForestClassifier
