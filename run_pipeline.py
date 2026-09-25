@@ -12,11 +12,36 @@ from semantic_embeddings import add_semantic_features
 from train_model import train_model, evaluate_model, save_model
 
 def load_data(n_rows=None):
-    print(f"Loading data (n_rows={n_rows if n_rows else 'ALL'})...")
-    s1 = pd.read_csv("student_resource/dataset/train/train_source1.tsv", sep="\t", dtype=str, nrows=n_rows)
-    s2 = pd.read_csv("student_resource/dataset/train/train_source2.tsv", sep="\t", dtype=str, nrows=n_rows)
-    s3 = pd.read_csv("student_resource/dataset/train/train_source3.tsv", sep="\t", dtype=str, nrows=n_rows)
-    gt = pd.read_csv("student_resource/dataset/train/train_ground_truth.tsv", sep="\t", dtype=str, nrows=n_rows)
+    print(f"Loading full datasets into memory (this will take a few seconds)...")
+    s1 = pd.read_csv("student_resource/dataset/train/train_source1.tsv", sep="\t", dtype=str)
+    s2 = pd.read_csv("student_resource/dataset/train/train_source2.tsv", sep="\t", dtype=str)
+    s3 = pd.read_csv("student_resource/dataset/train/train_source3.tsv", sep="\t", dtype=str)
+    gt = pd.read_csv("student_resource/dataset/train/train_ground_truth.tsv", sep="\t", dtype=str)
+    
+    if n_rows is not None:
+        print(f"Subsetting to {n_rows} ground truth queries to speed up execution...")
+        gt = gt.head(n_rows)
+        
+        # Only keep S1 queries that exist in our ground truth subset
+        valid_s1 = set(gt['source1_entity_id'])
+        s1 = s1[s1['entity_id'].isin(valid_s1)].copy()
+        
+        # We need to guarantee that the true candidates from S2 and S3 are retained in the corpus
+        true_cands = set()
+        for matches in gt['matched_entity_ids'].dropna():
+            true_cands.update(matches.split(','))
+            
+        # Filter S2 and S3 to retain all true positives + a random sample (e.g. 100k) as negatives
+        # This simulates a real candidate search without processing millions of rows.
+        def filter_corpus(df, true_set, noise_size=50000):
+            is_true = df['entity_id'].isin(true_set)
+            true_df = df[is_true]
+            noise_df = df[~is_true].sample(n=min(noise_size, len(df[~is_true])), random_state=42)
+            return pd.concat([true_df, noise_df])
+
+        s2 = filter_corpus(s2, true_cands)
+        s3 = filter_corpus(s3, true_cands)
+        
     return s1, s2, s3, gt
 
 def create_labels(candidate_dict, gt_df):
