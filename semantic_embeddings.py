@@ -34,15 +34,27 @@ def add_semantic_features(features_df, s1_df, corpus_df):
     q_addrs, c_addrs = [], []
     
     print(f"Extracting strings for semantic encoding of {len(features_df)} pairs...")
+    
+    # Pre-build dictionaries for lightning fast O(1) lookups and to avoid .loc[] Series bugs
+    s1_names = s1_df['norm_name'].to_dict()
+    s1_addrs = s1_df['norm_address'].to_dict()
+    corpus_names = corpus_df['norm_name'].to_dict()
+    corpus_addrs = corpus_df['norm_address'].to_dict()
+    
     for idx, row in features_df.iterrows():
         s1_id = row['source1_entity_id']
         cand_id = row['candidate_entity_id']
         
-        q_names.append(str(s1_df.loc[s1_id, 'norm_name']) if pd.notna(s1_df.loc[s1_id, 'norm_name']) else "")
-        c_names.append(str(corpus_df.loc[cand_id, 'norm_name']) if pd.notna(corpus_df.loc[cand_id, 'norm_name']) else "")
+        q_n = s1_names.get(s1_id, "")
+        c_n = corpus_names.get(cand_id, "")
+        q_a = s1_addrs.get(s1_id, "")
+        c_a = corpus_addrs.get(cand_id, "")
         
-        q_addrs.append(str(s1_df.loc[s1_id, 'norm_address']) if pd.notna(s1_df.loc[s1_id, 'norm_address']) else "")
-        c_addrs.append(str(corpus_df.loc[cand_id, 'norm_address']) if pd.notna(corpus_df.loc[cand_id, 'norm_address']) else "")
+        q_names.append(str(q_n) if pd.notna(q_n) else "")
+        c_names.append(str(c_n) if pd.notna(c_n) else "")
+        
+        q_addrs.append(str(q_a) if pd.notna(q_a) else "")
+        c_addrs.append(str(c_a) if pd.notna(c_a) else "")
         
     print("Encoding Source 1 Names...")
     # normalize_embeddings=True converts the vectors to L2 length = 1, meaning dot product is exactly cosine similarity
